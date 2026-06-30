@@ -11,7 +11,8 @@
 <body>
   <h2>Local Bytebeat Engine</h2>
   <p>1. Load raw audio file:</p>
-  <input type="file" id="audioFile" accept=".wav">
+  <input type="file" id="audioFile" accept="audio/wav, audio/x-wav, .wav">
+  
   <br><br>
   <p>2. Bytebeat Formula (use 't' and 'd' for raw file data):</p>
   <textarea id="formula">d[t % d.length] & (t >> 4)</textarea>
