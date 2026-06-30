@@ -1,61 +1,148 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-  <title>Mobile Bytebeat Engine</title>
-  <style>
-    body { background: #111; color: #fff; font-family: monospace; padding: 20px; text-align: center; }
-    textarea { width: 90%; height: 80px; background: #222; color: #0f0; border: 1px solid #444; padding: 10px; font-family: monospace; }
-    button { padding: 10px 20px; margin: 10px; background: #007acc; color: white; border: none; font-weight: bold; }
-  </style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Local Bytebeat Engine</title>
+    <style>
+        body {
+            background-color: #111;
+            color: #00ff00;
+            font-family: monospace;
+            padding: 20px;
+            text-align: center;
+        }
+        .container {
+            max-width: 500px;
+            margin: 0 auto;
+            background: #222;
+            padding: 20px;
+            border-radius: 8px;
+            border: 1px solid #333;
+        }
+        input, textarea, button {
+            width: 100%;
+            margin: 10px 0;
+            padding: 10px;
+            background: #333;
+            color: #fff;
+            border: 1px solid #444;
+            border-radius: 4px;
+            box-sizing: border-box;
+            font-family: monospace;
+        }
+        textarea {
+            height: 80px;
+            resize: vertical;
+            color: #00ff00;
+        }
+        button {
+            background: #0056b3;
+            cursor: pointer;
+            font-weight: bold;
+        }
+        button:hover {
+            background: #004085;
+        }
+    </style>
 </head>
 <body>
-  <h2>Local Bytebeat Engine</h2>
-  <p>1. Load raw audio file:</p>
-  <input type="file" id="audioFile" accept="audio/wav, audio/x-wav, .wav">
-  
-  <br><br>
-  <p>2. Bytebeat Formula (use 't' and 'd' for raw file data):</p>
-  <textarea id="formula">d[t % d.length] & (t >> 4)</textarea>
-  <br>
-  <button id="playBtn">PLAY CRUNCHED AUDIO</button>
 
-  <script>
+<div class="container">
+    <h2>Local Bytebeat Engine</h2>
+    
+    <label for="audioFile">1. Load raw audio file:</label>
+    <input type="file" id="audioFile" accept="audio/wav, audio/x-wav, .wav">
+
+    <label for="formula">2. Bytebeat Formula:</label>
+    <textarea id="formula">d[t % d.length] & (t >> 3)</textarea>
+
+    <button id="playBtn">PLAY CRUNCHED AUDIO</button>
+</div>
+
+<script>
     let audioCtx = null;
-    let rawData = new Uint8Array(0);
+    let audioBuffer = null;
+    let rawData = null;
     let isPlaying = false;
-    let t = 0;
+    let scriptNode = null;
 
-    document.getElementById('audioFile').onchange = function(e) {
-      let reader = new FileReader();
-      reader.onload = function() { rawData = new Uint8Array(reader.result); alert("File Loaded Safely!"); };
-      reader.readAsArrayBuffer(e.target.files[0]);
-    };
+    const audioFileInput = document.getElementById('audioFile');
+    const formulaInput = document.getElementById('formula');
+    const playBtn = document.getElementById('playBtn');
 
-    document.getElementById('playBtn').onclick = function() {
-      if (isPlaying) { location.reload(); return; }
-      if (rawData.length === 0) { alert("Please upload your WAV file first!"); return; }
-      
-      audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 8000 });
-      let scriptNode = audioCtx.createScriptProcessor(4096, 0, 1);
-      let formulaText = document.getElementById('formula').value;
-      
-      // Compile the formula safely
-      let bytebeatFunction = new Function('t', 'd', `return (${formulaText}) & 255;`);
+    audioFileInput.addEventListener('change', async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
 
-      scriptNode.onaudioprocess = function(audioProcessingEvent) {
-        let outputBuffer = audioProcessingEvent.outputBuffer;
-        let channelData = outputBuffer.getChannelData(0);
-        for (let sample = 0; sample < outputBuffer.length; sample++) {
-          let val = bytebeatFunction(t, rawData);
-          channelData[sample] = (val - 128) / 128; // Convert 0-255 bytebeat to audio float
-          t++;
+        const arrayBuffer = await file.arrayBuffer();
+        if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 8000 });
+        
+        try {
+            audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
+            rawData = audioBuffer.getChannelData(0);
+            // Convert Float32Array to 0-255 Unsigned Byte data for Bytebeat math
+            rawData = new Uint8Array(rawData.map(v => Math.floor((v + 1) * 127.5)));
+            alert("WAV File Loaded Successfully!");
+        } catch (err) {
+            alert("Error decoding audio file. Make sure it's a valid WAV.");
         }
-      };
+    });
 
-      scriptNode.connect(audioCtx.destination);
-      this.innerText = "STOP AUDIO";
-      isPlaying = true;
-    };
-  </script>
+    playBtn.addEventListener('click', () => {
+        if (!rawData) {
+            alert("Please upload a WAV file first!");
+            return;
+        }
+
+        if (isPlaying) {
+            if (scriptNode) scriptNode.disconnect();
+            isPlaying = false;
+            playBtn.textContent = "PLAY CRUNCHED AUDIO";
+            playBtn.style.background = "#0056b3";
+            return;
+        }
+
+        if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 8000 });
+        if (audioCtx.state === 'suspended') audioCtx.resume();
+
+        const formulaText = formulaInput.value;
+        let t = 0;
+        const d = rawData;
+
+        // Dynamic formula evaluation function
+        let evalFormula;
+        try {
+            evalFormula = new Function('t', 'd', `return (${formulaText}) & 255;`);
+            // Test execution to catch initial errors
+            evalFormula(0, d);
+        } catch (err) {
+            alert("Formula Error: " + err.message);
+            return;
+        }
+
+        scriptNode = audioCtx.createScriptProcessor(4096, 0, 1);
+        scriptNode.onaudioprocess = (audioProcessingEvent) => {
+            const outputBuffer = audioProcessingEvent.outputBuffer;
+            const outputData = outputBuffer.getChannelData(0);
+
+            for (let sample = 0; sample < outputBuffer.length; sample++) {
+                try {
+                    let val = evalFormula(t, d);
+                    outputData[sample] = (val / 127.5) - 1.0; // Convert back to PCM
+                    t++;
+                } catch (e) {
+                    outputData[sample] = 0;
+                }
+            }
+        };
+
+        scriptNode.connect(audioCtx.destination);
+        isPlaying = true;
+        playBtn.textContent = "STOP AUDIO";
+        playBtn.style.background = "#bd2130";
+    });
+</script>
+
 </body>
 </html>
